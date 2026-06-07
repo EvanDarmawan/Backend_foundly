@@ -1,0 +1,165 @@
+datasource db {
+  provider = "mysql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. ENTITAS USER
+enum Role {
+  PELAPOR
+  PENEMU
+  ADMIN
+}
+
+model User {
+  id_user       Int            @id @default(autoincrement())
+  nama          String         @db.VarChar(100)
+  email         String         @unique @db.VarChar(50)
+  password      String         @db.VarChar(100)
+  role          Role           @default(PELAPOR)
+  kontak        String         @db.VarChar(20)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  barang_hilang  BarangHilang[]
+  barang_temuan  BarangTemuan[]
+  verifikasi     Verifikasi[]
+  notifikasi     Notifikasi[]
+  klaim_barang   KlaimBarang[]
+
+  @@map("tb_user")
+}
+
+// 2. ENTITAS BARANG HILANG
+enum StatusLaporan {
+  PROSES
+  DITEMUKAN
+  TIDAK_DITEMUKAN
+  SELESAI
+}
+
+model BarangHilang {
+  id_barang_hilang Int           @id @default(autoincrement())
+  id_user          Int
+  nama_barang      String        @db.VarChar(100)
+  kategori         String        @db.VarChar(100)
+  deskripsi        String        @db.Text
+  lokasi_hilang    String        @db.VarChar(100)
+  waktu_hilang     DateTime      // Gabungan Tanggal & Waktu dari dokumen
+  tgl_hilang       DateTime
+  foto_barang      String        @db.Text
+  status           StatusLaporan @default(PROSES)
+  createdAt        DateTime      @default(now())
+
+  // Relations
+  user             User          @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  pencocokan       Pencocokan[]
+
+  @@map("tb_barang_hilang")
+}
+
+// 3. ENTITAS BARANG TEMUAN
+enum StatusBarang {
+  DISIMPAN
+  MENUNGGU
+  DIAMBIL
+  SELESAI
+}
+
+model BarangTemuan {
+  id_temuan     Int          @id @default(autoincrement())
+  id_user       Int
+  nama_barang   String       @db.VarChar(100)
+  kategori      String       @db.VarChar(50)
+  deskripsi     String       @db.Text
+  lokasi_temuan String       @db.VarChar(100)
+  waktu_temuan  DateTime
+  tgl_temuan    DateTime
+  foto_barang   String       @db.Text
+  status        StatusBarang @default(DISIMPAN)
+  createdAt     DateTime     @default(now())
+
+  // Relations
+  user          User         @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  pencocokan    Pencocokan[]
+  klaim_barang  KlaimBarang?
+
+  @@map("tb_barang_temuan")
+}
+
+// 4. ENTITAS PENCOCOKAN BARANG (BRIDGE FOR ML SIMILARITY)
+model Pencocokan {
+  id_pencocokan     Int          @id @default(autoincrement())
+  id_barang_hilang  Int
+  id_temuan         Int
+  tingkat_kemiripan Float          // Nilai kemiripan (%) dari model ML
+  status            Boolean        @default(false) // true = cocok, false = tidak cocok
+  createdAt         DateTime     @default(now())
+
+  // Relations
+  barang_hilang     BarangHilang @relation(fields: [id_barang_hilang], references: [id_barang_hilang], onDelete: Cascade)
+  barang_temuan     BarangTemuan @relation(fields: [id_temuan], references: [id_temuan], onDelete: Cascade)
+  verifikasi        Verifikasi?
+
+  @@map("tb_pencocokan")
+}
+
+// 5. ENTITAS VERIFIKASI ADMIN
+model Verifikasi {
+  id_verifikasi    Int        @id @default(autoincrement())
+  id_pencocokan    Int        @unique // One-to-One ke pencocokan tertentu
+  id_admin         Int
+  status_verifikasi Boolean    @default(false) // Cocok / Tidak cocok berdasarkan fisik
+  catatan          String     @db.Text
+  tgl_verfikasi    DateTime
+  waktu_verifikasi DateTime   @default(now())
+
+  // Relations
+  pencocokan       Pencocokan @relation(fields: [id_pencocokan], references: [id_pencocokan], onDelete: Cascade)
+  admin            User       @relation(fields: [id_admin], references: [id_user], onDelete: Cascade)
+
+  @@map("tb_verifikasi")
+}
+
+// 6. ENTITAS NOTIFIKASI
+enum StatusNotifikasi {
+  DIBACA
+  BELUM
+}
+
+model Notifikasi {
+  id_notifikasi Int              @id @default(autoincrement())
+  id_user       Int
+  pesan         String           @db.Text
+  waktu         DateTime         @default(now())
+  status        StatusNotifikasi @default(BELUM)
+
+  // Relations
+  user          User             @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+
+  @@map("tb_notifikasi")
+}
+
+// 7. ENTITAS KLAIM BARANG (FINAL TRANSACTION)
+enum StatusKlaim {
+  DI_AMBIL
+  BELUM_DI_AMBIL
+}
+
+model KlaimBarang {
+  id_klaim          Int          @id @default(autoincrement())
+  id_temuan         Int          @unique // Menjamin 1 barang temuan hanya punya 1 klaim aktif
+  id_user           Int          // Pelapor yang mengambil
+  waktu_pengambilan DateTime     @default(now())
+  bukti_klaim       String       @db.Text // Path/URL foto serah terima/KTM
+  status            StatusKlaim  @default(BELUM_DI_AMBIL)
+
+  // Relations
+  barang_temuan     BarangTemuan @relation(fields: [id_temuan], references: [id_temuan], onDelete: Cascade)
+  user              User         @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+
+  @@map("klaim_barang")
+}
